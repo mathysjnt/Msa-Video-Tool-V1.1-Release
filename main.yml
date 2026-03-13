@@ -1,0 +1,52 @@
+name: Build Windows Exe
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download FFmpeg
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "."
+          $ffmpegExe = Get-ChildItem -Recurse -Filter ffmpeg.exe | Where-Object { $_.FullName -match "\\bin\\ffmpeg\.exe$" } | Select-Object -First 1
+          $ffprobeExe = Get-ChildItem -Recurse -Filter ffprobe.exe | Where-Object { $_.FullName -match "\\bin\\ffprobe\.exe$" } | Select-Object -First 1
+          if (-not $ffmpegExe) { throw "ffmpeg.exe introuvable après extraction" }
+          if (-not $ffprobeExe) { throw "ffprobe.exe introuvable après extraction" }
+          New-Item -ItemType Directory -Force -Path "ffmpeg" | Out-Null
+          Copy-Item $ffmpegExe.FullName "ffmpeg/ffmpeg.exe"
+          Copy-Item $ffprobeExe.FullName "ffmpeg/ffprobe.exe"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow
+
+      - name: Build icon
+        run: |
+          python -c "from PIL import Image; img = Image.open('Icon.png'); img.save('Icon.ico', format='ICO', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --noconsole --onefile --name "MSA Video Tool" --icon "Icon.ico" --add-data "Icon.png;." --add-data "Logo réduit M blanc.svg;." --add-data "Icons\Icon V2.svg;Icons" --add-data "Icons\Icon V2.png;Icons" --add-binary "ffmpeg\ffmpeg.exe;ffmpeg" --add-binary "ffmpeg\ffprobe.exe;ffmpeg" videoracing_pipeline_v1_1.py
+
+      - name: Upload Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MSA-Video-Tool-Windows
+          path: dist/MSA Video Tool.exe
